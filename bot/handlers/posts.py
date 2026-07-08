@@ -8,6 +8,7 @@ Multi-user: все запросы фильтруются по user.id (owner_id)
 """
 from __future__ import annotations
 
+import html as html_module
 import re
 from datetime import datetime
 
@@ -31,57 +32,48 @@ from db.repositories import PostsRepository, SettingsRepository
 router = Router(name="posts")
 
 
-# Telegram поддерживает только ограниченный набор HTML-тегов.
-# Все остальные нужно удалить.
-ALLOWED_TAGS = {"b", "i", "u", "s", "a", "code", "pre", "blockquote"}
+# --------------------------------------------------------------------------- #
+#  Конвертер HTML → plain text
+#
+#  Внешний контент (raw_text из скрапера, translated_text из LLM) может
+#  содержать ЛЮБОЙ HTML, включая битые теги, незакрытые пары, комментарии,
+#  <table>, <script> и т.д. Регулярки для "починки" чужого HTML ненадёжны.
+#
+#  Решение: полностью стрипаем весь HTML из внешнего контента, оставляя
+#  только текст. HTML-теги (<b>, <blockquote>, <a>) добавляем ТОЛЬКО сами
+#  в render_post_caption — мы полностью контролируем их валидность.
+# --------------------------------------------------------------------------- #
+def _html_to_plain_text(text: str | None) -> str:
+    """Конвертирует HTML в безопасный plain text для Telegram HTML режима."""
+    if not text:
+        return ""
 
-
-def _sanitize_html(text: str) -> str:
-    """Удаляет все HTML-теги, кроме разрешённых Telegram."""
-    # Шаг 1: удаляем HTML-комментарии (включая многострочные)
+    # 1. Удаляем HTML-комментарии
     text = re.sub(r'<!--[\s\S]*?-->', '', text)
 
-    # Шаг 2: удаляем самозакрывающиеся теги (например, <br />)
-    text = re.sub(r'<\s*/?\s*(br|hr|img|input)\s*/?\s*>', '', text, flags=re.IGNORECASE)
+    # 2. Удаляем <script> и <style> ВМЕСТЕ с содержимым
+    text = re.sub(r'<\s*(script|style)\b[^>]*>[\s\S]*?<\s*/\1\s*>', '', text, flags=re.IGNORECASE)
 
-    # Шаг 3: для <a> тегов — удаляем пустые или некорректные href
-    def clean_a_href(match: re.Match) -> str:
-        attrs = match.group(1)
-        # Ищем href атрибут
-        href_match = re.search(r'href\s*=\s*["\']([^"\']*)["\']', attrs, re.IGNORECASE)
-        if not href_match:
-            # href отсутствует — удаляем открывающий тег, оставляем содержимое
-            return ''
-        href_value = href_match.group(1).strip()
-        if not href_value or href_value == '""' or href_value == "''":
-            # href пустой — удаляем открывающий тег, оставляем содержимое
-            return ''
-        # href валиден — оставляем тег, но удаляем остальные атрибуты (Telegram разрешает только href)
-        return f'<a href="{href_value}">'
+    # 3. Блочные теги → переводы строк (сохраняем читаемость)
+    text = re.sub(
+        r'<\s*/?\s*(br|p|div|tr|li|h[1-6]|hr)\s*/?\s*>',
+        '\n', text, flags=re.IGNORECASE,
+    )
 
-    # Заменяем <a ...> на <a href="..."> (или удаляем, если href некорректен)
-    text = re.sub(r'<a([^>]*)>', clean_a_href, text, flags=re.IGNORECASE)
+    # 4. Удаляем ВСЕ оставшиеся HTML-теги
+    text = re.sub(r'<[^>]+>', '', text)
 
-    # Шаг 4: удаляем оставшиеся <a> без href (если они есть)
-    text = re.sub(r'<a\s*>', '', text, flags=re.IGNORECASE)
+    # 5. Декодируем HTML-сущности (&amp; → &, &lt; → <, &#39; → ')
+    text = html_module.unescape(text)
 
-    # Шаг 5: удаляем оставшиеся закрывающие теги </a> без пар (которые остались после удаления <a>)
-    text = re.sub(r'</a\s*>', '', text, flags=re.IGNORECASE)
+    # 6. ЭКРАНИРУЕМ специальные символы для Telegram HTML режима
+    #    (& → &amp;, < → &lt;, > → &gt;)
+    text = html_module.escape(text)
 
-    # Шаг 6: удаляем открывающие и закрывающие теги, кроме разрешённых
-    def remove_tag(match: re.Match) -> str:
-        tag_name = match.group(1).lower()
-        if tag_name in ALLOWED_TAGS:
-            return match.group(0)  # оставляем тег как есть
-        return ''  # удаляем тег, но содержимое остаётся
+    # 7. Схлопываем 3+ переносов строк в 2 (аккуратный вид)
+    text = re.sub(r'\n{3,}', '\n\n', text)
 
-    # Удаляем открывающие теги <...>, кроме разрешённых
-    text = re.sub(r'<\s*(\w+)(?:\s+[^>]*)?\s*>', remove_tag, text)
-
-    # Удаляем закрывающие теги </...>, кроме разрешённых
-    text = re.sub(r'<\s*/\s*(\w+)\s*>', remove_tag, text)
-
-    return text
+    return text.strip()
 
 TOP_LIMIT = 10
 RAW_PREVIEW_LEN = 500
@@ -94,11 +86,11 @@ def render_post_caption(
     *, post_id: int, rating: int, source_label: str,
     translated: str, raw: str, source_url: str, created_at: datetime,
 ) -> str:
-    raw_preview = _sanitize_html((raw or "").strip())
+    raw_preview = _html_to_plain_text(raw)
     if len(raw_preview) > RAW_PREVIEW_LEN:
         raw_preview = raw_preview[:RAW_PREVIEW_LEN] + "…"
 
-    sanitized_translated = _sanitize_html(translated.strip() if translated else "")
+    sanitized_translated = _html_to_plain_text(translated)
     body = sanitized_translated if sanitized_translated else "<i>(перевод отсутствует)</i>"
 
     lines = [
@@ -111,7 +103,8 @@ def render_post_caption(
     if raw_preview:
         lines += ["", "<b>📄 Оригинал:</b>", f"<blockquote>{raw_preview}</blockquote>"]
     if source_url:
-        lines += ["", f"🔗 <a href=\"{source_url}\">открыть источник</a>"]
+        safe_url = html_module.escape(source_url)
+        lines += ["", f'🔗 <a href="{safe_url}">открыть источник</a>']
     lines.append(f"\n🆔 <code>#{post_id}</code>")
     return "\n".join(lines)
 
