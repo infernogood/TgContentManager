@@ -95,6 +95,9 @@ async def init_db() -> None:
                 "Миграция: system_prompt_collector обновлён до новой версии"
             )
 
+        # --- Миграция: добавляем колонку skip_if_no_media в Sources ---
+        await _migrate_add_column(session, "sources", "skip_if_no_media", "BOOLEAN DEFAULT 0")
+
         await session.commit()
 
     # Супер-админы из .env.
@@ -108,6 +111,25 @@ async def init_db() -> None:
                     telegram_id=tg_id, is_super_admin=True,
                 )
             await session.commit()
+
+
+async def _migrate_add_column(
+    session,
+    table: str,
+    column: str,
+    col_def: str,
+) -> None:
+    """ALTER TABLE ADD COLUMN IF NOT EXISTS (SQLite-безопасно)."""
+    from sqlalchemy import text
+    try:
+        await session.execute(
+            text(f"ALTER TABLE {table} ADD COLUMN {column} {col_def}")
+        )
+        log = logging.getLogger("db.database")
+        log.info("Миграция: добавлена колонка %s в %s", column, table)
+    except Exception:
+        # Колонка уже существует — игнорируем
+        pass
 
 
 async def dispose_db() -> None:

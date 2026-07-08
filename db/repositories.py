@@ -194,6 +194,7 @@ class SourcesRepository:
         title: str = "",
         extra: str = "{}",
         enabled: bool = True,
+        skip_if_no_media: bool = False,
     ) -> Sources:
         source = Sources(
             owner_id=owner_id,
@@ -202,6 +203,7 @@ class SourcesRepository:
             title=title.strip(),
             extra=extra,
             enabled=enabled,
+            skip_if_no_media=skip_if_no_media,
         )
         self.session.add(source)
         await self.session.flush()
@@ -242,6 +244,22 @@ class SourcesRepository:
         obj.enabled = not obj.enabled
         await self.session.flush()
         return obj.enabled
+
+    async def set_skip_if_no_media(
+        self, owner_id: int, source_id: int, value: bool,
+    ) -> bool | None:
+        obj = await self.get(owner_id, source_id)
+        if obj is None:
+            return None
+        obj.skip_if_no_media = value
+        await self.session.flush()
+        return value
+
+    async def get_skip_if_no_media(self, owner_id: int, source_id: int) -> bool | None:
+        obj = await self.get(owner_id, source_id)
+        if obj is None:
+            return None
+        return obj.skip_if_no_media
 
     async def delete(self, owner_id: int, source_id: int) -> bool:
         obj = await self.get(owner_id, source_id)

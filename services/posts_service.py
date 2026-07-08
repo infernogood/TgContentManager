@@ -71,6 +71,17 @@ class PostsService:
         # Шаг 2: медиа.
         media_path = await self._resolve_media(owner_id, item)
 
+        # Шаг 2.5: пропустить если у источника включён skip_if_no_media и медиа нет.
+        if media_path is None and item.source_id is not None:
+            async with self._session_factory() as session:
+                srepo = SourcesRepository(session)
+                skip = await srepo.get_skip_if_no_media(owner_id, item.source_id)
+                if skip:
+                    log.debug(
+                        "Пропуск (нет медиа) user=%s source=%s", owner_id, item.source_id,
+                    )
+                    return None
+
         try:
             # Шаг 3: анализ LLM.
             try:
@@ -166,7 +177,7 @@ class PostsService:
             )
 
         kb: InlineKeyboardMarkup = moderation_kb_factory(post_id)
-        caption = self._render_caption(item, analysis, post_id)
+        caption = self._render_caption(item, analysis, post_id, media_path)
 
         file_id = await self._send_one(chat_id, caption, media_path, kb)
 
@@ -220,15 +231,40 @@ class PostsService:
     #  Капшон
     # ------------------------------------------------------------------ #
     @staticmethod
-    def _render_caption(item: CollectedItem, analysis: AnalysisResult, post_id: int) -> str:
-        summary = analysis.summary.strip() or item.raw_text.strip()
-        if len(summary) > 900:
-            summary = summary[:900] + "…"
+    def _render_caption(
+        item: CollectedItem,
+        analysis: AnalysisResult,
+        post_id: int,
+        media_path: Path | None = None,
+    ) -> str:
+        # Динамический лимит: фото/видео → 1024, только текст → 4096
+        has_media = media_path is not None
+        limit = 1024 if has_media else 4096
 
-        return (
-            f"🆕 <b>Новый черновик</b>  ·  ⭐ {analysis.rating}/10\n"
-            f"━━━━━━━━━━━━━━━━━━\n"
-            f"{summary}\n"
-            f"━━━━━━━━━━━━━━━━━━\n"
-            f"🆔 #{post_id}"
-        )
+        # Фиксированная часть (заголовок + ID)
+        header = f"🆕 <b>Новый черновик</b>  ·  ⭐ {analysis.rating}/10\n"
+        footer = f"🆔 #{post_id}"
+        overhead = len(header) + len(footer) + 20  # 20 — отступы/теги
+        budget = limit - overhead
+
+        # Приоритет 1: перевод (body)
+        body = (analysis.summary or item.raw_text or "").strip()
+
+        # Приоритет 2: сырой текст (raw_preview)
+        raw_preview = item.raw_text.strip() if analysis.summary else ""
+
+        # Умное распределение бюджета
+        if len(body) >= budget:
+            body = body[:budget - 10] + "…"
+            raw_preview = ""
+        elif raw_preview:
+            remaining = budget - len(body) - 30  # 30 — заголовок секции + отступы
+            if len(raw_preview) > remaining:
+                raw_preview = raw_preview[:max(0, remaining)] + "…"
+
+        # Сборка
+        lines = [header, body]
+        if raw_preview:
+            lines.append(f"\n📄 <b>Оригинал:</b>\n<blockquote>{raw_preview}</blockquote>")
+        lines.append(f"\n{footer}")
+        return "\n".join(lines)

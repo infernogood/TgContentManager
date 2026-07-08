@@ -68,9 +68,9 @@ class PostNavCB(CallbackData, prefix="pnav"):
 
 
 class SourceCB(CallbackData, prefix="src"):
-    """Действие над источником: toggle/delete."""
+    """Действие над источником: toggle/delete/skip_media."""
 
-    action: str     # toggle | del
+    action: str     # toggle | del | skip_media
     source_id: int
 
 
@@ -198,22 +198,28 @@ def sources_menu_kb() -> InlineKeyboardMarkup:
     return kb.as_markup()
 
 
-def source_actions_kb(source_id: int, enabled: bool) -> InlineKeyboardMarkup:
+def source_actions_kb(
+    source_id: int, enabled: bool, skip_if_no_media: bool = False,
+) -> InlineKeyboardMarkup:
     """Кнопки под конкретным источником в листинге."""
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text=f"{'выкл' if enabled else 'вкл'}",
-                    callback_data=SourceCB(action="toggle", source_id=source_id).pack(),
-                ),
-                InlineKeyboardButton(
-                    text="🗑 Удалить",
-                    callback_data=SourceCB(action="del", source_id=source_id).pack(),
-                ),
-            ],
-        ]
+    kb = InlineKeyboardBuilder()
+    kb.row(
+        InlineKeyboardButton(
+            text=f"{'⛔ Выкл' if enabled else '✅ Вкл'}",
+            callback_data=SourceCB(action="toggle", source_id=source_id).pack(),
+        ),
+        InlineKeyboardButton(
+            text="🗑 Удалить",
+            callback_data=SourceCB(action="del", source_id=source_id).pack(),
+        ),
     )
+    kb.row(
+        InlineKeyboardButton(
+            text=f"{'✅' if skip_if_no_media else '⬜'} Только с фото",
+            callback_data=SourceCB(action="skip_media", source_id=source_id).pack(),
+        ),
+    )
+    return kb.as_markup()
 
 
 def source_type_kb() -> InlineKeyboardMarkup:

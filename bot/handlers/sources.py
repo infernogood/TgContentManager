@@ -71,7 +71,7 @@ async def list_sources(callback: CallbackQuery, user: Users) -> None:
             f"<code>{src.identifier}</code>\n"
             f"🆔 {src.id}"
         )
-        await callback.message.answer(text, reply_markup=source_actions_kb(src.id, src.enabled))
+        await callback.message.answer(text, reply_markup=source_actions_kb(src.id, src.enabled, src.skip_if_no_media))
 
     await callback.message.answer("Действия — под каждым источником.", reply_markup=sources_menu_kb())
     await callback.answer()
@@ -104,6 +104,25 @@ async def delete_source(callback: CallbackQuery, callback_data: SourceCB, user: 
         return
 
     await callback.answer("🗑 Удалён.")
+    await list_sources(callback, user)
+
+
+@router.callback_query(SourceCB.filter(F.action == "skip_media"))
+async def toggle_skip_media(
+    callback: CallbackQuery, callback_data: SourceCB, user: Users,
+) -> None:
+    async with SessionFactory() as session:
+        repo = SourcesRepository(session)
+        source = await repo.get(user.id, callback_data.source_id)
+        if source is None:
+            await callback.answer("Источник не найден или не твой.", show_alert=True)
+            return
+        new_val = await repo.set_skip_if_no_media(
+            user.id, callback_data.source_id, not source.skip_if_no_media,
+        )
+        await session.commit()
+
+    await callback.answer(f"{'✅' if new_val else '⬜'} Только с фото")
     await list_sources(callback, user)
 
 

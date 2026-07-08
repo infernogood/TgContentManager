@@ -178,6 +178,7 @@ class Sources(Base):
     identifier: Mapped[str] = mapped_column(String(512), nullable=False, index=True)
     title: Mapped[str] = mapped_column(String(255), nullable=False, default="")
     enabled: Mapped[bool] = mapped_column(default=True, nullable=False, index=True)
+    skip_if_no_media: Mapped[bool] = mapped_column(default=False, nullable=False)
     extra: Mapped[str] = mapped_column(Text, nullable=False, default="{}")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
