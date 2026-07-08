@@ -2,6 +2,7 @@
 media/downloader.py
 ===================
 Скачивание медиа по URL (HTTP/HTTPS) во временную директорию.
+Сжатие изображений перед отправкой в Telegram.
 
 Используется:
     * rss_collector'ом — для картинок из Reddit-фидов.
@@ -23,6 +24,7 @@ import uuid
 from pathlib import Path
 
 import aiohttp
+from PIL import Image
 
 from config import TMP_DIR
 
@@ -47,6 +49,9 @@ MAX_DOWNLOAD_BYTES: int = 20 * 1024 * 1024
 
 # Timeout на одно скачивание (подключение + чтение).
 DOWNLOAD_TIMEOUT = aiohttp.ClientTimeout(total=30, connect=10)
+
+# Расширения изображений, которые можно сжимать.
+IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".tiff", ".tif"} 
 
 
 def _guess_extension(content_type: str, url: str) -> str:
@@ -104,6 +109,78 @@ async def download(url: str, *, headers: dict[str, str] | None = None) -> Path |
         log.exception("Непредвиденная ошибка при скачивании %s: %s", url, exc)
         cleanup(file_path)
         return None
+
+
+def compress_image(
+    path: Path, *,
+    max_side: int = 1080,
+    quality: int = 85,
+) -> Path:
+    """
+    Сжать изображение: ресайз (длинная сторона ≤ max_side) + конвертация в JPEG.
+
+    Цель — уменьшить вес 2–4 МБ → 150–300 КБ, после чего система будет
+    рассчитывать лимит бюджета caption (1024/4096).
+
+    Алгоритм:
+    1. Проверяем расширение — если не изображение, возвращаем path без изменений.
+    2. Открываем через Pillow, определяем оригинальный размер.
+    3. Если длинная сторона > max_side — ресайзим с сохранением пропорций.
+    4. Конвертируем в RGB (на случай RGBA/палитры).
+    5. Сохраняем как JPEG с quality=85, перезаписывая оригинал.
+
+    Args:
+        path: Путь к скачанному файлу.
+        max_side: Максимальная длина длинной стороны в пикселях.
+        quality: Качество JPEG (0–100). 85 — оптимум качество/размер.
+
+    Returns:
+        Path к сжатому файлу (тот же path, перезаписан).
+        Если файл не изображение или ошибка — возвращаем path без изменений.
+    """
+    if path.suffix.lower() not in IMAGE_EXTENSIONS:
+        return path
+
+    try:
+        with Image.open(path) as img:
+            width, height = img.size
+
+            # Если изображение уже меньше лимита — только пересохраняем как JPEG
+            # для единообразия формата и дополнительного сжатия.
+            longest = max(width, height)
+            if longest > max_side:
+                ratio = max_side / longest
+                new_width = round(width * ratio)
+                new_height = round(height * ratio)
+                img = img.resize((new_width, new_height), Image.LANCZOS)
+                log.debug(
+                    "Ресайз %s: %dx%d → %dx%d",
+                    path.name, width, height, new_width, new_height,
+                )
+
+            # Конвертация в RGB (Pillow не сохраняет RGBA как JPEG).
+            if img.mode in ("RGBA", "P", "LA"):
+                img = img.convert("RGB")
+
+            # Перезаписываем оригинал — старый файл удаляется.
+            # Меняем расширение на .jpg для единообразия.
+            jpeg_path = path.with_suffix(".jpg")
+            img.save(jpeg_path, "JPEG", quality=quality, optimize=True)
+
+            # Если путь изменился (был .png → .jpg), удаляем оригинал.
+            if jpeg_path != path:
+                cleanup(path)
+
+            size_kb = jpeg_path.stat().st_size / 1024
+            log.debug(
+                "Сжатие %s: %.0f КБ, quality=%d, max_side=%d",
+                jpeg_path.name, size_kb, quality, max_side,
+            )
+            return jpeg_path
+
+    except Exception:
+        log.exception("Ошибка сжатия %s — пропускаем", path)
+        return path
 
 
 def cleanup(path: Path | str | None) -> None:

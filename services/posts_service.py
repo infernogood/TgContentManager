@@ -22,7 +22,7 @@ from aiogram.types import FSInputFile, InlineKeyboardMarkup
 from db.database import SessionFactory
 from db.models import PostStatus
 from db.repositories import PostsRepository, SettingsRepository, SourcesRepository, UsersRepository
-from media.downloader import classify_media, cleanup, download
+from media.downloader import classify_media, cleanup, compress_image, download
 from scraper.base import CollectedItem
 from services.llm_service import AnalysisResult, LLMService
 from services.settings_service import SettingsService
@@ -129,7 +129,10 @@ class PostsService:
             return item.media_paths[0]
         if item.media_urls:
             user_agent = await self.settings.get_str(owner_id, "reddit_user_agent", "TgContentManager/1.0")
-            return await download(item.media_urls[0], headers={"User-Agent": user_agent})
+            media_path = await download(item.media_urls[0], headers={"User-Agent": user_agent})
+            if media_path is not None:
+                media_path = compress_image(media_path)
+            return media_path
         return None
 
     # ------------------------------------------------------------------ #

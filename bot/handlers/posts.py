@@ -76,9 +76,10 @@ def _html_to_plain_text(text: str | None) -> str:
     return text.strip()
 
 TOP_LIMIT = 10
-RAW_PREVIEW_LEN = 250
-BODY_MAX_LEN = 450
-CAPTION_HARD_LIMIT = 1000  # Telegram limit 1024, запас 24
+
+# Лимиты Telegram
+CAPTION_LIMIT = 1024    # для фото/видео/гиф (caption)
+MESSAGE_LIMIT = 4096    # для чистого текста (send_message)
 
 
 # --------------------------------------------------------------------------- #
@@ -87,6 +88,7 @@ CAPTION_HARD_LIMIT = 1000  # Telegram limit 1024, запас 24
 def render_post_caption(
     *, post_id: int, rating: int, source_label: str,
     translated: str, raw: str, source_url: str, created_at: datetime,
+    limit: int = CAPTION_LIMIT,
 ) -> str:
     # Заголовок (фиксированная часть)
     header = (
@@ -103,20 +105,21 @@ def render_post_caption(
     footer_parts.append(f"🆔 <code>#{post_id}</code>")
     footer = "\n".join(footer_parts)
 
-    # Бюджет символов: лимит минус заголовок, footer и разделители
+    # Бюджет символов
     overhead = len(header) + len(footer) + 60  # 60 — теги blockquote, отступы
-    budget = CAPTION_HARD_LIMIT - overhead
+    budget = limit - overhead
 
     # Body (перевод) — приоритет 1
     body = _html_to_plain_text(translated)
     if not body:
         body = "<i>(перевод отсутствует)</i>"
 
-    # Raw preview — приоритет 2 (получает остаток бюджета)
+    # Raw preview — приоритет 2
     raw_preview = _html_to_plain_text(raw)
 
-    # Если body занимает весь бюджет — обрезаем, raw не показываем
+    # Распределяем бюджет
     if len(body) >= budget:
+        # Body съедает весь бюджет — обрезаем body, raw не показываем
         body = body[:budget - 20] + "…"
         raw_preview = ""
     else:
@@ -139,10 +142,16 @@ async def _send_post_card(
         f"{post.source.title or '(без названия)'} [{post.source.type.value}]"
         if post.source else "(источник удалён)"
     )
+
+    # Определяем лимит в зависимости от наличия медиа
+    has_media = post.media_file_id is not None
+    limit = CAPTION_LIMIT if has_media else MESSAGE_LIMIT
+
     caption = render_post_caption(
         post_id=post.id, rating=post.rating, source_label=source_label,
         translated=post.translated_text, raw=post.raw_text,
         source_url=post.source_url, created_at=post.created_at,
+        limit=limit,
     )
     kb = post_card_kb(
         post.id, status=status, offset=offset,
