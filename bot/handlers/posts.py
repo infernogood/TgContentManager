@@ -44,8 +44,31 @@ def _sanitize_html(text: str) -> str:
     # Шаг 2: удаляем самозакрывающиеся теги (например, <br />)
     text = re.sub(r'<\s*/?\s*(br|hr|img|input)\s*/?\s*>', '', text, flags=re.IGNORECASE)
 
-    # Шаг 3: удаляем открывающие и закрывающие теги, кроме разрешённых
-    # Сохраняем содержимое тегов, удаляем сами теги
+    # Шаг 3: для <a> тегов — удаляем пустые или некорректные href
+    def clean_a_href(match: re.Match) -> str:
+        attrs = match.group(1)
+        # Ищем href атрибут
+        href_match = re.search(r'href\s*=\s*["\']([^"\']*)["\']', attrs, re.IGNORECASE)
+        if not href_match:
+            # href отсутствует — удаляем открывающий тег, оставляем содержимое
+            return ''
+        href_value = href_match.group(1).strip()
+        if not href_value or href_value == '""' or href_value == "''":
+            # href пустой — удаляем открывающий тег, оставляем содержимое
+            return ''
+        # href валиден — оставляем тег, но удаляем остальные атрибуты (Telegram разрешает только href)
+        return f'<a href="{href_value}">'
+
+    # Заменяем <a ...> на <a href="..."> (или удаляем, если href некорректен)
+    text = re.sub(r'<a([^>]*)>', clean_a_href, text, flags=re.IGNORECASE)
+
+    # Шаг 4: удаляем оставшиеся <a> без href (если они есть)
+    text = re.sub(r'<a\s*>', '', text, flags=re.IGNORECASE)
+
+    # Шаг 5: удаляем оставшиеся закрывающие теги </a> без пар (которые остались после удаления <a>)
+    text = re.sub(r'</a\s*>', '', text, flags=re.IGNORECASE)
+
+    # Шаг 6: удаляем открывающие и закрывающие теги, кроме разрешённых
     def remove_tag(match: re.Match) -> str:
         tag_name = match.group(1).lower()
         if tag_name in ALLOWED_TAGS:
