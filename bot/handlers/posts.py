@@ -8,6 +8,7 @@ Multi-user: все запросы фильтруются по user.id (owner_id)
 """
 from __future__ import annotations
 
+import re
 from datetime import datetime
 
 from aiogram import Bot, F, Router
@@ -26,8 +27,35 @@ from db.models import PostStatus, Users
 from db.repositories import PostsRepository, SettingsRepository
 
 # router БЕЗ фильтра — он подключается в родительский active-router,
-# где уже навешен IsActiveUser.
+# где уже навешан IsActiveUser.
 router = Router(name="posts")
+
+
+# Telegram поддерживает только ограниченный набор HTML-тегов.
+# Все остальные нужно удалить.
+ALLOWED_TAGS = {"b", "i", "u", "s", "a", "code", "pre", "blockquote"}
+
+
+def _sanitize_html(text: str) -> str:
+    """Удаляет все HTML-теги, кроме разрешённых Telegram."""
+    # Шаг 1: удаляем самозакрывающиеся теги (например, <br />)
+    text = re.sub(r'<\s*/?\s*(br|hr|img|input)\s*/?\s*>', '', text, flags=re.IGNORECASE)
+
+    # Шаг 2: удаляем открывающие и закрывающие теги, кроме разрешённых
+    # Сохраняем содержимое тегов, удаляем сами теги
+    def remove_tag(match: re.Match) -> str:
+        tag_name = match.group(1).lower()
+        if tag_name in ALLOWED_TAGS:
+            return match.group(0)  # оставляем тег как есть
+        return ''  # удаляем тег, но содержимое остаётся
+
+    # Удаляем открывающие теги <...>, кроме разрешённых
+    text = re.sub(r'<\s*(\w+)(?:\s+[^>]*)?\s*>', remove_tag, text)
+
+    # Удаляем закрывающие теги </...>, кроме разрешённых
+    text = re.sub(r'<\s*/\s*(\w+)\s*>', remove_tag, text)
+
+    return text
 
 TOP_LIMIT = 10
 RAW_PREVIEW_LEN = 500
@@ -40,11 +68,12 @@ def render_post_caption(
     *, post_id: int, rating: int, source_label: str,
     translated: str, raw: str, source_url: str, created_at: datetime,
 ) -> str:
-    raw_preview = (raw or "").strip()
+    raw_preview = _sanitize_html((raw or "").strip())
     if len(raw_preview) > RAW_PREVIEW_LEN:
         raw_preview = raw_preview[:RAW_PREVIEW_LEN] + "…"
 
-    body = translated.strip() if translated and translated.strip() else "<i>(перевод отсутствует)</i>"
+    sanitized_translated = _sanitize_html(translated.strip() if translated else "")
+    body = sanitized_translated if sanitized_translated else "<i>(перевод отсутствует)</i>"
 
     lines = [
         f"⭐ <b>Рейтинг:</b> {rating}/10",
