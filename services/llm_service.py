@@ -93,14 +93,25 @@ class LLMService:
 
         try:
             client = await self._get_client(user_id)
-            response = await client.chat.completions.create(
-                model=model,
-                messages=[
-                    {"role": "system", "content": prompt},
-                    {"role": "user", "content": raw_text[:8000]},
-                ],
-                temperature=0.3,
-            )
+            # Добавляем user-instruction в конец для усиления JSON-формата
+            messages = [
+                {"role": "system", "content": prompt},
+                {"role": "user", "content": raw_text[:8000]},
+                {"role": "user", "content": 'Ответи ТОЛЬКО JSON: {"rating": N, "summary": "текст"}'},
+            ]
+            try:
+                response = await client.chat.completions.create(
+                    model=model,
+                    messages=messages,
+                    temperature=0.3,
+                    response_format={"type": "json_object"},
+                )
+            except Exception:
+                response = await client.chat.completions.create(
+                    model=model,
+                    messages=messages,
+                    temperature=0.3,
+                )
             content = response.choices[0].message.content or ""
             return self._parse_analysis(content)
         except RuntimeError:
@@ -144,11 +155,13 @@ class LLMService:
         if not content:
             return FALLBACK_RESULT
 
+        # 1. Прямой JSON
         try:
             return AnalysisResult.model_validate_json(content)
         except (json.JSONDecodeError, ValidationError):
             pass
 
+        # 2. JSON в code fence ```json ... ```
         fence_match = re.search(r"```(?:json)?\s*(\{.*?\})\s*```", content, re.DOTALL)
         if fence_match:
             try:
@@ -156,6 +169,7 @@ class LLMService:
             except (json.JSONDecodeError, ValidationError):
                 pass
 
+        # 3. JSON где-то в тексте (с "rating")
         brace_match = re.search(r"\{[^{}]*\"rating\"[^{}]*\}", content, re.DOTALL)
         if brace_match:
             try:
@@ -163,6 +177,16 @@ class LLMService:
             except (json.JSONDecodeError, ValidationError):
                 pass
 
+        # 4. Паттерны "rating: N" / "рейтинг: N" / "оценка: N"
+        rating_kws = re.search(
+            r'(?:rating|рейтинг|оценка|score)\s*[:=]\s*(\d{1,2})',
+            content, re.IGNORECASE,
+        )
+        if rating_kws:
+            rating = max(0, min(10, int(rating_kws.group(1))))
+            return AnalysisResult(rating=rating, summary=content[:2000])
+
+        # 5. Извлекаем число 1-10 из ПЕРВОЙ строки
         first_line = content.strip().splitlines()[0] if content.strip() else ""
         rating_match = re.search(r"\b([1-9]|10)\b", first_line)
         if rating_match:
@@ -170,5 +194,13 @@ class LLMService:
             summary = content[len(first_line):].strip() or content.strip()
             return AnalysisResult(rating=rating, summary=summary[:2000])
 
-        log.warning("LLM-ответ не распарсен как AnalysisResult: %r", content[:200])
+        # 6. Fallback: текст есть, но рейтинга нет — ставим нейтральный 5
+        #    (не 0, чтобы не отбрасывать каждый пост)
+        if len(content.strip()) > 20:
+            log.warning(
+                "LLM-ответ без рейтинга, default rating=5: %r", content[:200]
+            )
+            return AnalysisResult(rating=5, summary=content[:2000])
+
+        log.warning("LLM-ответ не распарсен: %r", content[:200])
         return FALLBACK_RESULT

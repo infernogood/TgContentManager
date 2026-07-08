@@ -9,6 +9,7 @@ db/database.py
 """
 from __future__ import annotations
 
+import logging
 from typing import AsyncIterator
 
 from sqlalchemy.ext.asyncio import (
@@ -81,6 +82,19 @@ async def init_db() -> None:
             existing = await srepo.get(None, key)
             if existing is None:
                 await srepo.set(None, key, value)
+
+        # --- Миграция: обновляем старый промпт collector на новый ---
+        old_prompt = await srepo.get(None, "system_prompt_collector")
+        new_prompt = DEFAULT_SETTINGS.get("system_prompt_collector", "")
+        if old_prompt and "ПРАВИЛА ОТВЕТА" not in old_prompt and new_prompt:
+            await srepo.set(
+                None, "system_prompt_collector", new_prompt,
+                description="Системный промпт сборщика",
+            )
+            logging.getLogger("db.database").info(
+                "Миграция: system_prompt_collector обновлён до новой версии"
+            )
+
         await session.commit()
 
     # Супер-админы из .env.
