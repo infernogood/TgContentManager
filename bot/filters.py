@@ -79,12 +79,14 @@ class UserMiddleware(BaseMiddleware):
 class IsActiveUser(BaseFilter):
     """Пропускает только ACTIVE юзеров."""
 
-    async def __call__(self, event: Message | CallbackQuery, user: Users | None = None) -> bool:
+    async def __call__(self, event: Message | CallbackQuery, **data: Any) -> bool:
+        user = data.get("user")
         return user is not None and user.status == UserStatus.ACTIVE
 
 
 class IsSuperAdmin(BaseFilter):
     """Пропускает только супер-админов."""
 
-    async def __call__(self, event: Message | CallbackQuery, user: Users | None = None) -> bool:
+    async def __call__(self, event: Message | CallbackQuery, **data: Any) -> bool:
+        user = data.get("user")
         return user is not None and user.is_super_admin

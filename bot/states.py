@@ -25,11 +25,14 @@ class AddSourceSG(StatesGroup):
                                фактически этот стейт короткий — мы сразу просим
                                идентификатор.
     Шаг 2: waiting_identifier — пользователь вводит URL/@username/тег.
-    Шаг 3: waiting_title       — (опц.) человекочитаемое имя источника.
+    Шаг 3: waiting_topics     — (только GitHub) пользователь вводит теги поиска
+                               (topic:xxx), по одному на строку.
+    Шаг 4: waiting_title       — (опц.) человекочитаемое имя источника.
     """
 
     choosing_type = State()
     waiting_identifier = State()
+    waiting_topics = State()
     waiting_title = State()
 
 
