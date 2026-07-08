@@ -1,0 +1,26 @@
+# === TgContentManager — зависимости ===
+# Фиксируем минимальные версии, проверенные в разработке.
+
+# Telegram Admin Panel (Bot API)
+aiogram>=3.7,<4.0
+
+# Telethon — тихое чтение TG-каналов через MTProto (userbot)
+telethon>=1.34
+
+# БД
+SQLAlchemy>=2.0
+aiosqlite>=0.19
+
+# LLM (универсальный клиент — OpenAI/Zhipu/Anthropic-via-proxy/Ollama)
+openai>=1.40
+
+# Скрейпинг Web
+feedparser>=6.0           # RSS/Atom (Reddit .rss и др.)
+aiohttp>=3.9              # GitHub REST API, NewsData.io, скачивание медиа
+
+# Конфигурация / валидация
+python-dotenv>=1.0
+pydantic>=2.4
+
+# Планировщик
+APScheduler>=3.10
