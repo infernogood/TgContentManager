@@ -250,6 +250,7 @@ async def main() -> None:
         await dp.start_polling(
             bot,
             settings_service=settings_svc,
+            llm_service=llm_svc,
         )
     finally:
         # 8. Graceful shutdown в обратном порядке.
