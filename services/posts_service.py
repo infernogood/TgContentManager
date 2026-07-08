@@ -17,7 +17,7 @@ from pathlib import Path
 
 from aiogram import Bot
 from aiogram.exceptions import TelegramBadRequest
-from aiogram.types import InlineKeyboardMarkup
+from aiogram.types import FSInputFile, InlineKeyboardMarkup
 
 from db.database import SessionFactory
 from db.models import PostStatus
@@ -189,21 +189,21 @@ class PostsService:
             media_type = classify_media(media_path)
             if media_type == "photo":
                 msg = await self.bot.send_photo(
-                    chat_id, photo=media_path.open("rb"), caption=caption, reply_markup=kb
+                    chat_id, photo=FSInputFile(media_path), caption=caption, reply_markup=kb
                 )
                 return msg.photo[-1].file_id if msg.photo else None
             if media_type == "video":
                 msg = await self.bot.send_video(
-                    chat_id, video=media_path.open("rb"), caption=caption, reply_markup=kb
+                    chat_id, video=FSInputFile(media_path), caption=caption, reply_markup=kb
                 )
                 return msg.video.file_id if msg.video else None
             if media_type == "animation":
                 msg = await self.bot.send_animation(
-                    chat_id, animation=media_path.open("rb"), caption=caption, reply_markup=kb
+                    chat_id, animation=FSInputFile(media_path), caption=caption, reply_markup=kb
                 )
                 return msg.animation.file_id if msg.animation else None
             msg = await self.bot.send_document(
-                chat_id, document=media_path.open("rb"), caption=caption, reply_markup=kb
+                chat_id, document=FSInputFile(media_path), caption=caption, reply_markup=kb
             )
             return msg.document.file_id if msg.document else None
         except TelegramBadRequest as exc:

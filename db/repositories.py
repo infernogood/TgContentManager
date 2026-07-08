@@ -305,8 +305,12 @@ class PostsRepository:
         return hashlib.sha256(payload).hexdigest()
 
     async def get(self, owner_id: int, post_id: int) -> Posts | None:
+        from sqlalchemy.orm import selectinload
+
         result = await self.session.execute(
-            select(Posts).where(Posts.id == post_id, Posts.owner_id == owner_id)
+            select(Posts)
+            .options(selectinload(Posts.source))
+            .where(Posts.id == post_id, Posts.owner_id == owner_id)
         )
         return result.scalar_one_or_none()
 
@@ -325,8 +329,11 @@ class PostsRepository:
         limit: int = 20,
         offset: int = 0,
     ) -> Sequence[Posts]:
+        from sqlalchemy.orm import selectinload
+
         result = await self.session.execute(
             select(Posts)
+            .options(selectinload(Posts.source))
             .where(Posts.owner_id == owner_id, Posts.status == status)
             .order_by(Posts.rating.desc(), Posts.created_at.desc())
             .offset(offset)
@@ -343,8 +350,11 @@ class PostsRepository:
         status: PostStatus | None = None,
         limit: int = 10,
     ) -> Sequence[Posts]:
+        from sqlalchemy.orm import selectinload
+
         stmt = (
             select(Posts)
+            .options(selectinload(Posts.source))
             .where(Posts.owner_id == owner_id)
             .order_by(Posts.rating.desc(), Posts.created_at.desc())
         )
