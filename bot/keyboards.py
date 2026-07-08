@@ -187,12 +187,12 @@ def sources_menu_kb() -> InlineKeyboardMarkup:
     kb = InlineKeyboardBuilder()
     kb.row(InlineKeyboardButton(text="📋 Список источников", callback_data="src_list"))
     kb.row(
-        InlineKeyboardButton(text="➕ TG-канал", callback_data=SourceAddCB("tg").pack()),
-        InlineKeyboardButton(text="➕ RSS", callback_data=SourceAddCB("rss").pack()),
+        InlineKeyboardButton(text="➕ TG-канал", callback_data=SourceAddCB(source_type="tg").pack()),
+        InlineKeyboardButton(text="➕ RSS", callback_data=SourceAddCB(source_type="rss").pack()),
     )
     kb.row(
-        InlineKeyboardButton(text="➕ GitHub", callback_data=SourceAddCB("github").pack()),
-        InlineKeyboardButton(text="➕ NewsData", callback_data=SourceAddCB("newsdata").pack()),
+        InlineKeyboardButton(text="➕ GitHub", callback_data=SourceAddCB(source_type="github").pack()),
+        InlineKeyboardButton(text="➕ NewsData", callback_data=SourceAddCB(source_type="newsdata").pack()),
     )
     kb.row(InlineKeyboardButton(text="🔙 В меню", callback_data="back_to_menu"))
     return kb.as_markup()
