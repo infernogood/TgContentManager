@@ -76,7 +76,9 @@ def _html_to_plain_text(text: str | None) -> str:
     return text.strip()
 
 TOP_LIMIT = 10
-RAW_PREVIEW_LEN = 500
+RAW_PREVIEW_LEN = 250
+BODY_MAX_LEN = 450
+CAPTION_HARD_LIMIT = 1000  # Telegram limit 1024, запас 24
 
 
 # --------------------------------------------------------------------------- #
@@ -86,26 +88,47 @@ def render_post_caption(
     *, post_id: int, rating: int, source_label: str,
     translated: str, raw: str, source_url: str, created_at: datetime,
 ) -> str:
-    raw_preview = _html_to_plain_text(raw)
-    if len(raw_preview) > RAW_PREVIEW_LEN:
-        raw_preview = raw_preview[:RAW_PREVIEW_LEN] + "…"
+    # Заголовок (фиксированная часть)
+    header = (
+        f"⭐ <b>Рейтинг:</b> {rating}/10\n"
+        f"📡 <b>Источник:</b> {source_label}\n"
+        f"📅 <b>Собран:</b> {created_at:%Y-%m-%d %H:%M}\n\n"
+    )
 
-    sanitized_translated = _html_to_plain_text(translated)
-    body = sanitized_translated if sanitized_translated else "<i>(перевод отсутствует)</i>"
-
-    lines = [
-        f"⭐ <b>Рейтинг:</b> {rating}/10",
-        f"📡 <b>Источник:</b> {source_label}",
-        f"📅 <b>Собран:</b> {created_at:%Y-%m-%d %H:%M}",
-        "",
-        body,
-    ]
-    if raw_preview:
-        lines += ["", "<b>📄 Оригинал:</b>", f"<blockquote>{raw_preview}</blockquote>"]
+    # Footer (фиксированная часть)
+    footer_parts = []
     if source_url:
         safe_url = html_module.escape(source_url)
-        lines += ["", f'🔗 <a href="{safe_url}">открыть источник</a>']
-    lines.append(f"\n🆔 <code>#{post_id}</code>")
+        footer_parts.append(f'🔗 <a href="{safe_url}">открыть источник</a>')
+    footer_parts.append(f"🆔 <code>#{post_id}</code>")
+    footer = "\n".join(footer_parts)
+
+    # Бюджет символов: лимит минус заголовок, footer и разделители
+    overhead = len(header) + len(footer) + 60  # 60 — теги blockquote, отступы
+    budget = CAPTION_HARD_LIMIT - overhead
+
+    # Body (перевод) — приоритет 1
+    body = _html_to_plain_text(translated)
+    if not body:
+        body = "<i>(перевод отсутствует)</i>"
+
+    # Raw preview — приоритет 2 (получает остаток бюджета)
+    raw_preview = _html_to_plain_text(raw)
+
+    # Если body занимает весь бюджет — обрезаем, raw не показываем
+    if len(body) >= budget:
+        body = body[:budget - 20] + "…"
+        raw_preview = ""
+    else:
+        remaining = budget - len(body) - 30  # 30 — теги + заголовки секций
+        if len(raw_preview) > remaining:
+            raw_preview = raw_preview[:max(0, remaining)] + "…"
+
+    # Сборка
+    lines = [header, body]
+    if raw_preview:
+        lines += ["", "<b>📄 Оригинал:</b>", f"<blockquote>{raw_preview}</blockquote>"]
+    lines += ["", footer]
     return "\n".join(lines)
 
 
