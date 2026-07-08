@@ -12,6 +12,7 @@ Multi-user изменения:
 """
 from __future__ import annotations
 
+import html as html_module
 import logging
 from pathlib import Path
 
@@ -231,6 +232,23 @@ class PostsService:
     #  Капшон
     # ------------------------------------------------------------------ #
     @staticmethod
+    def _sanitize_html(text: str) -> str:
+        """Удаляет HTML-теги, декодирует сущности, экранирует для Telegram."""
+        import re
+        # 1. Удаляем <script> и <style> ВМЕСТЕ с содержимым
+        text = re.sub(
+            r'<\s*(script|style)\b[^>]*>[\s\S]*?<\s*/\1\s*>',
+            '', text, flags=re.IGNORECASE,
+        )
+        # 2. Удаляем все оставшиеся теги
+        text = re.sub(r'<[^>]+>', '', text)
+        # 3. Декодируем HTML-сущности
+        text = html_module.unescape(text)
+        # 4. Экранируем для Telegram HTML-режима
+        text = html_module.escape(text)
+        return text.strip()
+
+    @staticmethod
     def _render_caption(
         item: CollectedItem,
         analysis: AnalysisResult,
@@ -247,11 +265,11 @@ class PostsService:
         overhead = len(header) + len(footer) + 20  # 20 — отступы/теги
         budget = limit - overhead
 
-        # Приоритет 1: перевод (body)
-        body = (analysis.summary or item.raw_text or "").strip()
+        # Приоритет 1: перевод (body) — санитим HTML
+        body = PostsService._sanitize_html(analysis.summary or item.raw_text or "")
 
-        # Приоритет 2: сырой текст (raw_preview)
-        raw_preview = item.raw_text.strip() if analysis.summary else ""
+        # Приоритет 2: сырой текст (raw_preview) — санитим HTML
+        raw_preview = PostsService._sanitize_html(item.raw_text) if analysis.summary else ""
 
         # Умное распределение бюджета
         if len(body) >= budget:
